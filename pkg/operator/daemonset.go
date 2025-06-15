@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func MakeDaemonSet(fb fluentbitv1alpha2.FluentBit, logPath string) *appsv1.DaemonSet {
+func MakeDaemonSet(fb fluentbitv1alpha2.FluentBit, logPath string, serviceAccountName string) *appsv1.DaemonSet {
 	var labels map[string]string
 	if fb.Spec.Labels != nil {
 		labels = fb.Spec.Labels
@@ -47,7 +47,7 @@ func MakeDaemonSet(fb fluentbitv1alpha2.FluentBit, logPath string) *appsv1.Daemo
 					Annotations: fb.Spec.Annotations,
 				},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: fb.Name,
+					ServiceAccountName: serviceAccountName,
 					ImagePullSecrets:   fb.Spec.ImagePullSecrets,
 					InitContainers:     fb.Spec.InitContainers,
 					Volumes:            fbVolumes,

@@ -99,26 +99,45 @@ func (r *FluentBitReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	// Install RBAC resources for the filter plugin kubernetes
-	var role, sa, binding client.Object
-	if r.Namespaced {
-		role, sa, binding = operator.MakeScopedRBACObjects(fb.Name, fb.Namespace, fb.Spec.ServiceAccountAnnotations)
-	} else {
-		role, sa, binding = operator.MakeRBACObjects(fb.Name, fb.Namespace, "fluent-bit", fb.Spec.RBACRules, fb.Spec.ServiceAccountAnnotations)
-	}
-	if _, err := controllerutil.CreateOrPatch(ctx, r.Client, role, r.mutate(role, &fb)); err != nil {
-		return ctrl.Result{}, err
-	}
-	if _, err := controllerutil.CreateOrPatch(ctx, r.Client, sa, r.mutate(sa, &fb)); err != nil {
-		return ctrl.Result{}, err
-	}
-	if _, err := controllerutil.CreateOrPatch(ctx, r.Client, binding, r.mutate(binding, &fb)); err != nil {
-		return ctrl.Result{}, err
+	CreateSA := fb.Spec.CreateServiceAcccount == nil || *fb.Spec.CreateServiceAcccount
+
+	serviceAccountName := fb.Name
+	if fb.Spec.ServiceAccountName != "" {
+		serviceAccountName = fb.Spec.ServiceAccountName
 	}
 
+	if !CreateSA && fb.Spec.ServiceAccountName != "" {
+		var existingSA corev1.ServiceAccount
+		if err := r.Get(ctx, client.ObjectKey{Namespace: fb.Namespace, Name: serviceAccountName}, &existingSA); err != nil {
+			if errors.IsNotFound(err) {
+				r.Log.Error(err, "ServiceAccount not found", "name", serviceAccountName)
+				return ctrl.Result{}, fmt.Errorf("ServiceAccount %s not found in namespace %s", serviceAccountName, fb.Namespace)
+			}
+			return ctrl.Result{}, err
+		}
+	}
+
+	if CreateSA {
+		// Install RBAC resources for the filter plugin kubernetes
+		var role, sa, binding client.Object
+		if r.Namespaced {
+			role, sa, binding = operator.MakeScopedRBACObjects(fb.Name, fb.Namespace, fb.Spec.ServiceAccountAnnotations)
+		} else {
+			role, sa, binding = operator.MakeRBACObjects(fb.Name, fb.Namespace, "fluent-bit", fb.Spec.RBACRules, fb.Spec.ServiceAccountAnnotations)
+		}
+		if _, err := controllerutil.CreateOrPatch(ctx, r.Client, role, r.mutate(role, &fb)); err != nil {
+			return ctrl.Result{}, err
+		}
+		if _, err := controllerutil.CreateOrPatch(ctx, r.Client, sa, r.mutate(sa, &fb)); err != nil {
+			return ctrl.Result{}, err
+		}
+		if _, err := controllerutil.CreateOrPatch(ctx, r.Client, binding, r.mutate(binding, &fb)); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 	// Deploy Fluent Bit DaemonSet
 	logPath := r.getContainerLogPath(fb)
-	ds := operator.MakeDaemonSet(fb, logPath)
+	ds := operator.MakeDaemonSet(fb, logPath, serviceAccountName)
 	if _, err := controllerutil.CreateOrPatch(ctx, r.Client, ds, r.mutate(ds, &fb)); err != nil {
 		return ctrl.Result{}, err
 	}
